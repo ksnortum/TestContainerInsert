@@ -1,5 +1,11 @@
 package com.catalystitservices.vaadin;
 
+import java.lang.reflect.Field;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
+import java.util.HashMap;
+import java.util.Map;
+
 import com.vaadin.Application;
 import com.vaadin.data.Item;
 import com.vaadin.data.Property;
@@ -14,7 +20,6 @@ import com.vaadin.ui.Window;
 
 /**
  * The main application class to test addItem versus insertItem
- * 
  */
 @SuppressWarnings( "serial" )
 public class TestApp extends Application {
@@ -33,7 +38,6 @@ public class TestApp extends Application {
 
 	/**
 	 * Setup the main window: add table and button
-	 * 
 	 */
 	public class TestWindow extends Window {
 		public TestWindow() {
@@ -90,9 +94,49 @@ public class TestApp extends Application {
 
 				@Override
 				public void valueChange( ValueChangeEvent event ) {
+					
+					// This is all we can get w/o reflection
 					Property property = event.getProperty();
 					Object value = property.getValue();
-					System.out.println( "Value: " + value );
+					System.out.println( "\nValue: " + value );
+
+					Map<String, Object> returnData;
+
+					// Use reflection to get item and property ID
+					try {
+						returnData = getIdAndProperty( property );
+					} catch ( NoSuchFieldException e ) {
+						e.printStackTrace();
+						return;
+					}
+
+					Object itemId = returnData.get( "itemId" );
+					String propertyId = (String) returnData.get( "propertyId" );
+					System.out.println( "Item ID: " + itemId
+							+ ", Property ID: " + propertyId );
+
+					// Get the item from the container
+					if ( table != null ) {
+						
+						// Pretend that container isn't visible
+						IndexedContainer container = (IndexedContainer) table
+								.getContainerDataSource(); 
+						Item item = container.getItem( itemId );
+						System.out.println( "Item is "
+								+ ( item == null ? "" : "not " ) + "null" );
+
+						// Change things using the item and property ID
+						if ( propertyId.equals( "number" )
+								&& value != null
+								&& value.toString().equals( "0" ) ) {
+							item.getItemProperty( "name" ).setValue( "Zero" );
+							
+						} else if ( propertyId.equals( "name" ) 
+								&& value != null
+								&& value.toString().equals( "Boris" ) ) {
+							item.getItemProperty( "number" ).setValue( 42 );
+						}
+					}
 				}
 			} );
 
@@ -150,6 +194,44 @@ public class TestApp extends Application {
 			item.getItemProperty( "id" ).setValue( itemId );
 			item.getItemProperty( "id" ).setReadOnly( true );
 			itemId++;
+		}
+
+		/**
+		 * Get itemId and propertyId from the eventProperty via reflection
+		 * 
+		 * @param eventProperty
+		 * @return map with "itemId" and "propertyId" keys
+		 * @throws NoSuchFieldException
+		 * @throws
+		 */
+		private Map<String, Object> getIdAndProperty( Property eventProperty )
+				throws NoSuchFieldException {
+
+			Map<String, Object> returnData = new HashMap<String, Object>();
+			Class<? extends Property> clazz = eventProperty.getClass();
+			final Field idField = clazz.getDeclaredField( "itemId" );
+			final Field propertyField = clazz.getDeclaredField( "propertyId" );
+
+			AccessController.doPrivileged( new PrivilegedAction<Object>() {
+				@Override
+				public Object run() {
+					idField.setAccessible( true );
+					propertyField.setAccessible( true );
+					return null;
+				}
+			} );
+
+			try {
+				returnData.put( "itemId", idField.get( eventProperty ) );
+				returnData
+						.put( "propertyId", propertyField.get( eventProperty ) );
+			} catch ( IllegalArgumentException e ) {
+				e.printStackTrace();
+			} catch ( IllegalAccessException e ) {
+				e.printStackTrace();
+			}
+
+			return returnData;
 		}
 	}
 }
